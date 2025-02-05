@@ -1,0 +1,1 @@
+# Dunyadaki-Depremlerin-Analizi-Butunleme
