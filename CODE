@@ -1,0 +1,140 @@
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.svm import SVR
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+
+# Veri Yükleme
+from google.colab import files
+uploaded = files.upload()
+df = pd.read_csv('earthquake-dataset.csv')
+
+# Eksik Verileri İnceleme
+print("Eksik Veriler:\n", df.isnull().sum())
+
+# Eksik Verileri Doldurma
+df['nst'].fillna(df['nst'].median(), inplace=True)
+df['gap'].fillna(df['gap'].median(), inplace=True)
+df['dmin'].fillna(df['dmin'].median(), inplace=True)
+df['rms'].fillna(df['rms'].median(), inplace=True)
+df['horizontalError'].fillna(df['horizontalError'].median(), inplace=True)
+df['depthError'].fillna(df['depthError'].median(), inplace=True)
+df['magError'].fillna(df['magError'].median(), inplace=True)
+df['magNst'].fillna(df['magNst'].median(), inplace=True)
+
+# Sayısal sütunları seçme
+numeric_df = df.select_dtypes(include=['number'])
+
+# Aykırı Değerleri Temizleme (IQR Metodu)
+Q1 = numeric_df.quantile(0.25)
+Q3 = numeric_df.quantile(0.75)
+IQR = Q3 - Q1
+df = df[~((numeric_df < (Q1 - 1.5 * IQR)) | (numeric_df > (Q3 + 1.5 * IQR))).any(axis=1)]
+
+# Tarih Dönüştürme
+df['time'] = pd.to_datetime(df['time'], errors='coerce', utc=True)
+df['year'] = df['time'].dt.year
+df['month'] = df['time'].dt.month
+# Ay bilgisi eklendi
+df['time_unix'] = df['time'].astype('int64') // 10**9
+# Unix timestamp formatına çevirme
+
+# Korelasyon Analizi
+numeric_df = df.select_dtypes(include=['number'])
+plt.figure(figsize=(10, 6))
+sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm')
+plt.title("Korelasyon Matrisi")
+plt.show()
+
+# Deprem Büyüklüğünün Dağılımı
+plt.figure(figsize=(8, 5))
+sns.histplot(df['mag'], bins=30, kde=True)
+plt.title("Deprem Büyüklüğü Dağılımı")
+plt.xlabel("Büyüklük")
+plt.ylabel("Frekans")
+plt.show()
+
+# Derinlik ve Büyüklük Arasındaki İlişki
+plt.figure(figsize=(10, 6))
+sns.scatterplot(x=df['depth'], y=df['mag'], alpha=0.5)
+plt.title("Deprem Büyüklüğüne Göre Derinlik Dağılımı")
+plt.xlabel("Derinlik (km)")
+plt.ylabel("Büyüklük")
+plt.show()
+
+# Depremlerin Mevsimsel Analizi
+plt.figure(figsize=(12, 6))
+sns.histplot(df['month'], bins=12, kde=True)
+plt.title("Depremlerin Mevsimsel Dağılımı")
+plt.xlabel("Ay")
+plt.ylabel("Frekans")
+plt.show()
+
+# Depremlerin Yıllara Göre Dağılımı
+plt.figure(figsize=(12, 6))
+sns.histplot(df['year'], bins=50, kde=True)
+plt.title("Depremlerin Yıllara Göre Dağılımı")
+plt.xlabel("Yıl")
+plt.ylabel("Frekans")
+plt.show()
+
+# Coğrafi Dağılım (Harita Üzerinde Gösterim)
+plt.figure(figsize=(10, 6))
+mappable = plt.scatter(df['longitude'], df['latitude'], c=df['mag'], cmap='coolwarm', alpha=0.5)
+plt.title("Depremlerin Coğrafi Dağılımı")
+plt.xlabel("Boylam")
+plt.ylabel("Enlem")
+plt.colorbar(mappable, label="Büyüklük")
+plt.show()
+
+# Encoding (Varsa Kategorik Değişkenleri Sayısallaştırma)
+categorical_columns = df.select_dtypes(include=['object']).columns
+for col in categorical_columns:
+    if df[col].nunique() < 10:
+        df = pd.get_dummies(df, columns=[col])
+    else:
+        le = LabelEncoder()
+        df[col] = le.fit_transform(df[col])
+
+# Özellik ve Hedef Değişkenleri Belirleme
+features = ['depth', 'latitude', 'longitude', 'gap', 'rms', 'depthError', 'magError', 'time_unix']
+X = df[features]
+y = df['mag']
+
+# Veriyi Ölçeklendirme
+scaler = StandardScaler()
+X = scaler.fit_transform(X)
+
+# Veri Setini Bölme
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Model Eğitimi ve Değerlendirme
+models = {
+    "Linear Regression": LinearRegression(),
+    "Random Forest": RandomForestRegressor(n_estimators=100, random_state=42),
+    "Support Vector Machine": SVR(kernel='linear'),
+    "Gradient Boosting": GradientBoostingRegressor(n_estimators=100, random_state=42),
+    "K-Nearest Neighbors": KNeighborsRegressor(n_neighbors=5)
+}
+
+for name, model in models.items():
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    mse = mean_squared_error(y_test, y_pred)
+    print(f'{name} MSE: {mse:.2f}')
+
+# Sonuçları Görselleştirme
+plt.figure(figsize=(12, 6))
+plt.scatter(y_test, models["Linear Regression"].predict(X_test), color='red', label='Linear Regression')
+plt.scatter(y_test, models["Random Forest"].predict(X_test), color='green', label='Random Forest')
+plt.xlabel("Gerçek Büyüklük")
+plt.ylabel("Tahmin Edilen Büyüklük")
+plt.legend()
+plt.grid(True)
+plt.show()
